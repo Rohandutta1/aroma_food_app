@@ -13,6 +13,7 @@ function App() {
   const [selectedDishId, setSelectedDishId] = useState(null)
   const [isARSupported, setIsARSupported] = useState(true)
   const [cameraPermission, setCameraPermission] = useState(null)
+  const [openedViaQR, setOpenedViaQR] = useState(false)
   const modelViewerRef = useRef(null)
 
   const selectedDish = selectedDishId ? getDishById(selectedDishId) : null
@@ -29,6 +30,7 @@ function App() {
       // Direct link with dish ID - show AR view
       setSelectedDishId(dishId)
       setView('ar')
+      setOpenedViaQR(true)
     } else {
       // Default to menu
       setView('menu')
@@ -127,6 +129,7 @@ function App() {
           ref={modelViewerRef}
           isARSupported={isARSupported}
           cameraPermission={cameraPermission}
+          autoActivateAR={openedViaQR}
         />
 
         <div className="ui-overlay">

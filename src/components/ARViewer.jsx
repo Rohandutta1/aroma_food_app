@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, forwardRef } from 'react'
 import LoadingIndicator from './LoadingIndicator'
 
-const ARViewer = forwardRef(({ modelUrl, dishName, isARSupported, cameraPermission }, ref) => {
+const ARViewer = forwardRef(({ modelUrl, dishName, isARSupported, cameraPermission, autoActivateAR = false }, ref) => {
   const modelViewerRef = useRef(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -47,7 +47,16 @@ const ARViewer = forwardRef(({ modelUrl, dishName, isARSupported, cameraPermissi
     }
   }, [dishName])
 
-  // Handle pinch zoom for scaling
+  // Auto-activate AR when opened via QR scan
+  useEffect(() => {
+    if (autoActivateAR && !isLoading && !error && isARSupported && cameraPermission && !arActive) {
+      // Small delay to ensure everything is ready
+      const timer = setTimeout(() => {
+        activateAR()
+      }, 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [autoActivateAR, isLoading, error, isARSupported, cameraPermission, arActive])
   useEffect(() => {
     const viewer = modelViewerRef.current
     if (!viewer) return
