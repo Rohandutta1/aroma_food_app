@@ -10,10 +10,14 @@
     "lint": "eslint . --ext .js,.jsx"
   },
   "dependencies": {
+    "@react-three/drei": "^9.88.13",
+    "@react-three/fiber": "^8.15.19",
+    "@react-three/xr": "^6.6.29",
     "lucide-react": "^0.292.0",
     "qrcode": "^1.5.3",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "three": "^0.183.2"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",

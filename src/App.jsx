@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import './App.css'
-import ARViewer from './components/ARViewer'
+import WebXRARViewer from './components/WebXRARViewer'
 import UIOverlay from './components/UIOverlay'
 import ItemsList from './components/ItemsList'
 import ItemDetail from './components/ItemDetail'
@@ -123,12 +123,9 @@ function App() {
   if (view === 'ar' && selectedDish) {
     return (
       <div className="ar-container">
-        <ARViewer
+        <WebXRARViewer
           modelUrl={selectedDish.modelUrl}
           dishName={selectedDish.name}
-          ref={modelViewerRef}
-          isARSupported={isARSupported}
-          cameraPermission={cameraPermission}
           autoActivateAR={openedViaQR}
         />
 
