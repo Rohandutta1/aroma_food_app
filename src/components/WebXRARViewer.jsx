@@ -6,7 +6,7 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
   const [isARSupported, setIsARSupported] = useState(false)
   const [isQuickLookSupported, setIsQuickLookSupported] = useState(false)
   const [error, setError] = useState(null)
-  const [isARActive, setIsARActive] = useState(false)
+  const [showModelViewer, setShowModelViewer] = useState(false)
   const [deviceInfo, setDeviceInfo] = useState({})
   const [debugInfo, setDebugInfo] = useState({})
   const xrSessionRef = useRef(null)
@@ -54,10 +54,18 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
       // Check WebXR availability
       if (!navigator.xr) {
         console.log('❌ WebXR not available')
+
+        // Check if it's a browser that should support WebXR
+        const shouldSupportWebXR = deviceInfo.isChrome || deviceInfo.isSafari || deviceInfo.isEdge
+
         if (deviceInfo.isIOS) {
           setError('iOS Safari requires WebXR. Enable it in Settings → Safari → Advanced → WebXR, or use Chrome.')
+        } else if (deviceInfo.isAndroid) {
+          setError('Android requires Chrome 81+ or Samsung Internet. Update your browser for AR support.')
+        } else if (shouldSupportWebXR) {
+          setError('WebXR is disabled in your browser. Enable it in browser settings or try a different browser.')
         } else {
-          setError('WebXR not supported. Try Chrome or Edge.')
+          setError('WebXR requires a modern browser. Try Chrome, Edge, or Safari for AR support.')
         }
         return
       }
@@ -214,10 +222,8 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
     }
   }
 
-  const stopAR = () => {
-    if (xrSessionRef.current) {
-      xrSessionRef.current.end()
-    }
+  const openModelViewer = () => {
+    setShowModelViewer(true)
   }
 
   // Show debug info in development
@@ -254,12 +260,47 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
               <div className="bg-purple-900 p-3 rounded-lg">
                 <h3 className="font-semibold mb-1">Desktop/Laptop:</h3>
                 <p className="text-sm">AR requires mobile devices. Scan QR codes with your phone or tablet for the full AR experience.</p>
+                {deviceInfo.isChrome && (
+                  <p className="text-xs mt-1">Chrome: Enable WebXR in chrome://flags/#webxr-incubations</p>
+                )}
+                {deviceInfo.isEdge && (
+                  <p className="text-xs mt-1">Edge: WebXR should be enabled by default</p>
+                )}
+              </div>
+            )}
+
+            {(deviceInfo.isChrome || deviceInfo.isSafari || deviceInfo.isEdge) && !navigator.xr && (
+              <div className="bg-orange-900 p-3 rounded-lg">
+                <h3 className="font-semibold mb-1">Enable WebXR:</h3>
+                <div className="text-sm space-y-1">
+                  {deviceInfo.isChrome && (
+                    <p>• Chrome: Go to chrome://flags/#webxr-incubations and enable it</p>
+                  )}
+                  {deviceInfo.isSafari && (
+                    <p>• Safari: Settings → Safari → Advanced → WebXR (enable)</p>
+                  )}
+                  {deviceInfo.isEdge && (
+                    <p>• Edge: WebXR should be enabled by default</p>
+                  )}
+                  <p>• Restart browser after enabling</p>
+                </div>
               </div>
             )}
 
             <div className="bg-yellow-900 p-3 rounded-lg">
-              <h3 className="font-semibold mb-1">Alternative:</h3>
-              <p className="text-sm">Try the 3D model viewer instead of AR</p>
+              <h3 className="font-semibold mb-1">Alternative Options:</h3>
+              <div className="text-sm space-y-2">
+                <button
+                  onClick={openModelViewer}
+                  className="w-full bg-aroma-gold text-aroma-dark px-4 py-2 rounded-lg font-medium hover:bg-yellow-500 transition-colors"
+                >
+                  View 3D Model Instead
+                </button>
+                <p>• Use a mobile device with AR support</p>
+                {!navigator.xr && (deviceInfo.isChrome || deviceInfo.isSafari || deviceInfo.isEdge) && (
+                  <p>• Enable WebXR in browser settings (see above)</p>
+                )}
+              </div>
             </div>
           </div>
 
@@ -274,6 +315,48 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
             Device: {deviceInfo.isIOS ? 'iOS' : deviceInfo.isAndroid ? 'Android' : 'Desktop'}
             {deviceInfo.iOSVersion > 0 && ` (${deviceInfo.iOSVersion})`}
           </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show 3D model viewer fallback
+  if (showModelViewer) {
+    return (
+      <div className="model-viewer w-full h-full relative bg-black">
+        <div className="absolute top-4 left-4 z-10">
+          <button
+            onClick={() => setShowModelViewer(false)}
+            className="bg-aroma-dark bg-opacity-90 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-opacity-100 transition-all"
+          >
+            ← Back to AR
+          </button>
+        </div>
+
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="text-center text-white p-4">
+            <h2 className="text-xl font-bold mb-4">3D Model Viewer</h2>
+            <div className="bg-gray-800 p-4 rounded-lg max-w-md">
+              <p className="text-sm mb-4">
+                Since AR is not available, here's the 3D model you can view and rotate:
+              </p>
+
+              {/* Simple 3D viewer - you could integrate model-viewer here */}
+              <div className="bg-gray-700 p-8 rounded-lg mb-4">
+                <div className="text-center">
+                  <div className="text-6xl mb-2">🍽️</div>
+                  <p className="text-sm text-gray-300">3D Model: {dishName}</p>
+                  <p className="text-xs text-gray-400 mt-2">
+                    (Model viewer would be integrated here with {modelUrl})
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-gray-400">
+                For full AR experience, use a mobile device with AR support.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     )
