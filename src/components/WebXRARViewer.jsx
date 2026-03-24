@@ -6,6 +6,7 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
   const [isARSupported, setIsARSupported] = useState(false)
   const [isQuickLookSupported, setIsQuickLookSupported] = useState(false)
   const [error, setError] = useState(null)
+  const [isARActive, setIsARActive] = useState(false)
   const [showModelViewer, setShowModelViewer] = useState(false)
   const [deviceInfo, setDeviceInfo] = useState({})
   const [debugInfo, setDebugInfo] = useState({})
