@@ -5,10 +5,13 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
   const canvasRef = useRef(null)
   const [isReady, setIsReady] = useState(false)
   const [error, setError] = useState(null)
+  const [isStarting, setIsStarting] = useState(false)
   const streamRef = useRef(null)
 
   useEffect(() => {
-    startAR()
+    if (autoActivateAR) {
+      startAR()
+    }
 
     // Handle visibility change to restart camera if needed
     const handleVisibilityChange = () => {
@@ -23,54 +26,117 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
+    // Monitor video state periodically
+    const videoMonitor = setInterval(() => {
+      if (videoRef.current && streamRef.current && isReady) {
+        const video = videoRef.current
+        const tracks = streamRef.current.getVideoTracks()
+
+        if (tracks.length > 0) {
+          const track = tracks[0]
+          if (track.readyState === 'ended') {
+            console.log('📷 Track ended - restarting')
+            startAR()
+          } else if (video.paused && !video.ended && document.visibilityState === 'visible') {
+            console.log('📹 Video paused unexpectedly - resuming')
+            video.play().catch(err => console.log('Failed to resume:', err))
+          }
+        }
+      }
+    }, 2000) // Check every 2 seconds
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      clearInterval(videoMonitor)
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop())
       }
     }
-  }, [])
+  }, [autoActivateAR, isReady])
 
   const startAR = async () => {
+    if (isStarting) return // Prevent multiple starts
+
+    setIsStarting(true)
+    setError(null)
+
     try {
       console.log('🚀 Starting AR...')
 
       // Stop any existing stream
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop())
+        streamRef.current = null
       }
 
-      // Request camera access
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }
-      })
+      // Request camera access with fallback constraints
+      let constraints = {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 }
+        }
+      }
+
+      console.log('📷 Requesting camera with constraints:', constraints)
+      let stream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints)
+      } catch (firstError) {
+        console.log('⚠️ Environment camera failed, trying any camera:', firstError)
+        // Fallback to any camera
+        constraints = { video: true }
+        stream = await navigator.mediaDevices.getUserMedia(constraints)
+      }
+
+      console.log('✅ Camera access granted')
       streamRef.current = stream
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play()
-          console.log('✅ Video stream started')
+
+        // Wait for metadata to load
+        await new Promise((resolve) => {
+          videoRef.current.onloadedmetadata = () => {
+            console.log('📹 Video metadata loaded')
+            resolve()
+          }
+        })
+
+        // Try to play the video
+        try {
+          await videoRef.current.play()
+          console.log('▶️ Video playing successfully')
           setIsReady(true)
+        } catch (playError) {
+          console.error('❌ Video play failed:', playError)
+          throw new Error('Video autoplay blocked. Please tap to start camera.')
         }
 
         // Add event listeners for mobile camera issues
         videoRef.current.onpause = () => {
           console.log('⚠️ Video paused')
-          // On mobile, try to resume
-          if (videoRef.current && !videoRef.current.ended) {
-            videoRef.current.play().catch(err => console.log('Failed to resume video:', err))
-          }
+          // On mobile, try to resume after a short delay
+          setTimeout(() => {
+            if (videoRef.current && !videoRef.current.ended && document.visibilityState === 'visible') {
+              videoRef.current.play().catch(err => {
+                console.log('Failed to resume video:', err)
+                setError('Camera paused. Tap restart to continue.')
+              })
+            }
+          }, 500)
         }
 
         videoRef.current.onended = () => {
           console.log('⚠️ Video stream ended')
-          // Try to restart the stream
+          setError('Camera stream ended')
+          // Try to restart after delay
           setTimeout(() => {
-            if (!document.hidden) {
+            if (document.visibilityState === 'visible') {
               startAR()
             }
-          }, 1000)
+          }, 2000)
         }
 
         videoRef.current.onerror = (e) => {
@@ -84,11 +150,29 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
             console.log('📷 Camera track ended')
             setError('Camera disconnected')
           }
+          track.onmute = () => {
+            console.log('📷 Camera track muted')
+          }
+          track.onunmute = () => {
+            console.log('📷 Camera track unmuted')
+          }
         })
+
+        // Monitor video element visibility
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (!entry.isIntersecting) {
+              console.log('📹 Video element not visible')
+            }
+          })
+        })
+        observer.observe(videoRef.current)
       }
     } catch (err) {
       console.error('❌ Error:', err)
       setError(err.message)
+    } finally {
+      setIsStarting(false)
     }
   }
 
@@ -117,8 +201,11 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
         autoPlay
         playsInline
         muted
-        className="absolute inset-0 w-full h-full object-cover"
-        style={{ transform: 'scaleX(-1)' }}
+        className="absolute inset-0 w-full h-full object-cover z-0"
+        style={{
+          transform: 'scaleX(-1)',
+          backgroundColor: 'black'
+        }}
       />
 
       {/* 3D Model Container - Using model-viewer */}
@@ -142,11 +229,25 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
       )}
 
       {/* Loading State */}
-      {!isReady && (
+      {!isReady && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/80">
           <div className="text-center text-white">
-            <div className="animate-spin w-12 h-12 border-4 border-gray-600 border-t-aroma-gold rounded-full mx-auto mb-4"></div>
-            <p className="text-lg font-medium">Initializing Camera...</p>
+            {isStarting ? (
+              <>
+                <div className="animate-spin w-12 h-12 border-4 border-gray-600 border-t-aroma-gold rounded-full mx-auto mb-4"></div>
+                <p className="text-lg font-medium">Initializing Camera...</p>
+              </>
+            ) : (
+              <>
+                <p className="text-lg font-medium mb-4">Tap to Start AR Camera</p>
+                <button
+                  onClick={startAR}
+                  className="bg-aroma-gold text-black px-6 py-3 rounded-lg font-medium text-lg"
+                >
+                  📷 Start Camera
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -159,12 +260,13 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
             <p className="text-sm font-medium">🍽️ {dishName}</p>
           </div>
           <div className="flex gap-2">
-            {error && (
+            {(error || !isReady) && (
               <button
                 onClick={startAR}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                disabled={isStarting}
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg font-medium transition-colors"
               >
-                🔄 Restart Camera
+                {isStarting ? '🔄 Starting...' : '🔄 Restart Camera'}
               </button>
             )}
             <button
