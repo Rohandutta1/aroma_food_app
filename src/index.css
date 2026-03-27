@@ -3,13 +3,13 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Nunito', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
-  font-weight: 400;
+  font-weight: 600;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color-scheme: light;
+  color: #2D3142; /* kid-text */
+  background-color: #F2FBF9; /* kid-bg */
 }
 
 html, body {
@@ -37,5 +37,11 @@ model-viewer {
   width: 100%;
   height: 100%;
   --progress-bar-height: 2px;
-  --progress-bar-color: #ffd700;
+  --progress-bar-color: #FFE66D; /* kid-yellow */
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%) skewX(-12deg);
+  }
 }

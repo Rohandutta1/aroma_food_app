@@ -127,19 +127,11 @@ function App() {
           modelUrl={selectedDish.modelUrl}
           dishName={selectedDish.name}
           autoActivateAR={openedViaQR}
+          onExit={handleBackToDetail}
         />
 
         <div className="ui-overlay">
           <UIOverlay dish={selectedDish} />
-          {/* Back to Detail Button */}
-          <div className="absolute top-0 left-0 safe-top px-4 pt-4">
-            <button
-              onClick={handleBackToDetail}
-              className="bg-aroma-dark bg-opacity-90 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-opacity-100 transition-all"
-            >
-              ← Back
-            </button>
-          </div>
         </div>
       </div>
     )

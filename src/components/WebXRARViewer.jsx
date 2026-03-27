@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react'
 
-const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
+const ARViewer = ({ modelUrl, dishName, autoActivateAR = false, onExit }) => {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const [isReady, setIsReady] = useState(false)
@@ -178,15 +178,15 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
 
   if (error) {
     return (
-      <div className="w-full h-full bg-black flex items-center justify-center">
-        <div className="text-center text-white p-6">
-          <p className="text-2xl font-bold mb-4 text-red-500">⚠️ Error</p>
-          <p className="mb-6">{error}</p>
+      <div className="w-full h-full bg-kid-bg flex items-center justify-center font-kid">
+        <div className="text-center text-kid-text p-6 bg-white rounded-3xl border-4 border-kid-pink shadow-xl max-w-sm mx-4">
+          <p className="text-3xl font-kid-heading mb-4 text-kid-pink drop-shadow-sm">Uh Oh! 🙈</p>
+          <p className="mb-6 font-bold text-lg">{error}</p>
           <button
-            onClick={() => window.history.back()}
-            className="bg-aroma-gold text-black px-6 py-2 rounded-lg font-medium"
+            onClick={onExit ? onExit : () => window.history.back()}
+            className="bg-kid-blue hover:bg-kid-orange text-white px-8 py-3 rounded-full font-bold text-xl transition-all shadow-md transform hover:-translate-y-1 border-4 border-white"
           >
-            Go Back
+            Let's Go Back!
           </button>
         </div>
       </div>
@@ -230,21 +230,23 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
 
       {/* Loading State */}
       {!isReady && !error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-          <div className="text-center text-white">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-10 font-kid">
+          <div className="text-center text-white bg-white/20 p-8 rounded-3xl border-4 border-white/50 shadow-2xl">
             {isStarting ? (
               <>
-                <div className="animate-spin w-12 h-12 border-4 border-gray-600 border-t-aroma-gold rounded-full mx-auto mb-4"></div>
-                <p className="text-lg font-medium">Initializing Camera...</p>
+                <div className="animate-bounce w-16 h-16 bg-kid-yellow rounded-full mx-auto mb-6 flex items-center justify-center text-3xl shadow-lg border-4 border-white">
+                  ✨
+                </div>
+                <p className="text-2xl font-kid-heading text-white drop-shadow-md">Waking up Magic Camera...</p>
               </>
             ) : (
               <>
-                <p className="text-lg font-medium mb-4">Tap to Start AR Camera</p>
+                <p className="text-2xl font-kid-heading mb-6 drop-shadow-md">Ready to see Magic? 🪄</p>
                 <button
                   onClick={startAR}
-                  className="bg-aroma-gold text-black px-6 py-3 rounded-lg font-medium text-lg"
+                  className="bg-kid-pink text-white px-8 py-4 rounded-full font-black text-xl hover:bg-kid-orange transform hover:scale-105 transition-all shadow-xl border-4 border-white"
                 >
-                  📷 Start Camera
+                  📷 Start Camera!
                 </button>
               </>
             )}
@@ -253,35 +255,39 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
       )}
 
       {/* UI Controls */}
-      <div className="absolute top-0 left-0 right-0 bottom-0 pointer-events-none flex flex-col justify-between p-4">
+      <div className="absolute top-0 left-0 right-0 bottom-0 pointer-events-none flex flex-col justify-start p-2 sm:p-4 z-20 font-kid">
         {/* Top Bar */}
-        <div className="flex justify-between items-center pointer-events-auto">
-          <div className="bg-black/80 text-white px-4 py-2 rounded-lg">
-            <p className="text-sm font-medium">🍽️ {dishName}</p>
+        <div className="flex justify-between items-start pointer-events-auto safe-top mt-2 w-full px-2 sm:px-4">
+          {/* Back Button */}
+          <div>
+            <button
+              onClick={onExit ? onExit : () => window.history.back()}
+              className="flex items-center gap-1 bg-kid-blue text-white px-4 py-2 rounded-full font-black shadow-lg transition-colors border-2 border-white hover:bg-kid-pink text-sm sm:text-base"
+            >
+              ← Back
+            </button>
           </div>
-          <div className="flex gap-2">
+
+          {/* Right Actions */}
+          <div className="flex flex-col gap-2 items-end">
             {(error || !isReady) && (
               <button
                 onClick={startAR}
                 disabled={isStarting}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                className="bg-kid-blue text-white px-4 py-2 rounded-full font-bold shadow-md text-sm sm:text-base border-2 border-white"
               >
-                {isStarting ? '🔄 Starting...' : '🔄 Restart Camera'}
+                {isStarting ? '🔄 Wait...' : '🔄 Restart'}
               </button>
             )}
             <button
-              onClick={() => window.history.back()}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+              onClick={onExit ? onExit : () => window.history.back()}
+              className="bg-kid-pink hover:bg-kid-orange text-white px-4 py-2 rounded-full font-black shadow-lg transition-colors border-2 border-white text-sm sm:text-base"
             >
-              ← Exit
+              ✖ Exit AR
             </button>
           </div>
         </div>
 
-        {/* Bottom Instructions */}
-        <div className="bg-black/80 text-white text-center px-4 py-3 rounded-lg pointer-events-auto">
-          <p className="text-sm">📱 Move your device to explore • 👆 Tap to interact</p>
-        </div>
       </div>
     </div>
   )
