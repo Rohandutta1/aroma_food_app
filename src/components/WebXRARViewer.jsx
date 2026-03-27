@@ -2,560 +2,273 @@ import React, { useRef, useState, useEffect } from 'react'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 
-// Enhanced WebXR AR Viewer with iOS Support
 const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
-  const canvasRef = useRef(null)
-  const [isARSupported, setIsARSupported] = useState(false)
-  const [isQuickLookSupported, setIsQuickLookSupported] = useState(false)
+  const containerRef = useRef(null)
+  const [isARReady, setIsARReady] = useState(false)
   const [error, setError] = useState(null)
-  const [isARActive, setIsARActive] = useState(false)
-  const [showModelViewer, setShowModelViewer] = useState(false)
-  const [deviceInfo, setDeviceInfo] = useState({})
-  const [debugInfo, setDebugInfo] = useState({})
-  const xrSessionRef = useRef(null)
-  const glRef = useRef(null)
-  const sceneRef = useRef(null)
   const rendererRef = useRef(null)
+  const sceneRef = useRef(null)
+  const cameraRef = useRef(null)
+  const videoRef = useRef(null)
   const modelRef = useRef(null)
-  const loaderRef = useRef(new GLTFLoader())
+  const animationIdRef = useRef(null)
 
-  // Detect device and capabilities
   useEffect(() => {
-    const detectDevice = () => {
-      const userAgent = navigator.userAgent.toLowerCase()
-      const isIOS = /ipad|iphone|ipod/.test(userAgent)
-      const isAndroid = /android/.test(userAgent)
-      
-      // More robust browser detection
-      const isChrome = /chrome/.test(userAgent) && !/edg|opr/.test(userAgent)
-      const isSafari = /safari/.test(userAgent) && !/chrome|android|edg|opr/.test(userAgent)
-      const isEdge = /edg/.test(userAgent)
-      const isOpera = /opr/.test(userAgent)
-      const isFirefox = /firefox/.test(userAgent)
-
-      // For Android, also check for Samsung Internet or other Chromium browsers
-      const isSamsungInternet = /samsungbrowser/.test(userAgent)
-      const isChromium = isChrome || isEdge || isSamsungInternet || (isAndroid && /chrome|crios/.test(userAgent))
-
-      const info = {
-        isIOS,
-        isAndroid,
-        isSafari,
-        isChrome,
-        isEdge,
-        isOpera,
-        isFirefox,
-        isChromium,
-        isSamsungInternet,
-        isMobile: isIOS || isAndroid,
-        userAgent: navigator.userAgent,
-        iOSVersion: isIOS ? parseFloat(userAgent.match(/os (\d+)_(\d+)/)?.slice(1).join('.') || '0') : 0
+    initializeAR()
+    return () => {
+      if (animationIdRef.current) {
+        cancelAnimationFrame(animationIdRef.current)
       }
-
-      setDeviceInfo(info)
-      setDebugInfo({
-        userAgent: navigator.userAgent,
-        hasXR: !!navigator.xr,
-        hasWebkit: !!window.webkit,
-        iOSVersion: info.iOSVersion
-      })
-
-      // Check for Quick Look support (iOS AR)
-      const hasQuickLook = isIOS && ('webkit' in window) && window.webkit?.messageHandlers?.playAR
-      setIsQuickLookSupported(hasQuickLook)
-      
-      console.log('📱 Device detected:', {
-        platform: isIOS ? 'iOS' : isAndroid ? 'Android' : 'Desktop',
-        browser: isSafari ? 'Safari' : isChrome ? 'Chrome' : isEdge ? 'Edge' : isSamsungInternet ? 'Samsung Internet' : 'Other',
-        hasXR: !!navigator.xr,
-        hasQuickLook
-      })
+      if (videoRef.current?.srcObject) {
+        videoRef.current.srcObject.getTracks().forEach(t => t.stop())
+      }
     }
-
-    detectDevice()
   }, [])
 
-  // Check AR support ONLY after device info is fully set
-  useEffect(() => {
-    // Skip if device detection isn't complete
-    if (!deviceInfo.isMobile === undefined || !deviceInfo.isIOS === undefined) {
-      return
-    }
-
-    const checkARSupport = async () => {
-      console.log('🔍 Checking AR support...', {
-        isMobile: deviceInfo.isMobile,
-        isIOS: deviceInfo.isIOS,
-        isAndroid: deviceInfo.isAndroid,
-        hasXR: !!navigator.xr
-      })
-
-      // WebXR not available at all
-      if (!navigator.xr) {
-        console.log('❌ WebXR not available on this device')
-        const shouldSupportWebXR = deviceInfo.isChrome || deviceInfo.isSafari || deviceInfo.isEdge
-
-        if (deviceInfo.isIOS) {
-          setError('🍎 iOS Safari: Enable WebXR in Settings → Safari → Advanced → WebXR, restart Safari, then try again.')
-        } else if (deviceInfo.isAndroid) {
-          setError('🤖 Android: Requires Chrome 81+, Samsung Internet, or Edge. Update your browser.')
-        } else if (shouldSupportWebXR) {
-          setError('🔧 WebXR is disabled. Enable it in settings: Chrome → chrome://flags → webxr-incubations')
-        } else {
-          setError('📱 AR requires a mobile device. Try on your phone or tablet.')
-        }
-        return
-      }
-
-      // Test if camera permission is accessible
-      let hasCameraPermission = false
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true })
-        stream.getTracks().forEach(track => track.stop())
-        hasCameraPermission = true
-        console.log('✅ Camera permission available')
-      } catch (err) {
-        console.warn('⚠️ Camera permission denied or unavailable:', err.message)
-        hasCameraPermission = false
-      }
-
-      try {
-        // Test immersive-ar support
-        console.log('🔄 Testing immersive-ar support...')
-        const arSupported = await Promise.race([
-          navigator.xr.isSessionSupported('immersive-ar'),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('XR check timeout')), 3000))
-        ])
-
-        if (arSupported) {
-          console.log('✅ Immersive AR is supported!')
-          setIsARSupported(true)
-          setError(null)
-        } else {
-          // AR not supported - don't check VR, just show error
-          console.log('❌ Immersive AR not supported')
-          if (deviceInfo.isIOS) {
-            setError('🍎 iOS AR unavailable. Ensure iOS 15.1+ and WebXR is enabled in Safari Advanced settings.')
-          } else if (deviceInfo.isAndroid) {
-            if (!hasCameraPermission) {
-              setError('📷 Camera permission denied. Grant camera access and try again.')
-            } else {
-              setError('🤖 Your Android device may not support WebXR AR. Try Chrome or Samsung Internet.')
-            }
-          } else {
-            setError('AR not supported on this device.')
-          }
-          setIsARSupported(false)
-        }
-      } catch (err) {
-        console.error('❌ AR support check failed:', err)
-        
-        // Distinguish timeout from actual errors
-        if (err.message === 'XR check timeout') {
-          setError('⏱️ AR support check timed out. Check your internet and try again.')
-        } else if (deviceInfo.isIOS) {
-          setError('🍎 WebXR check failed. Ensure it\'s enabled in Settings → Safari → Advanced.')
-        } else {
-          setError(`AR check error: ${err.message}`)
-        }
-        setIsARSupported(false)
-      }
-    }
-
-    checkARSupport()
-  }, [deviceInfo.isMobile, deviceInfo.isIOS, deviceInfo.isAndroid])
-
-  // Auto-start AR when opened via QR (simplified, no dependency on full deviceInfo object)
-  useEffect(() => {
-    if (!autoActivateAR || isARActive) {
-      return // Don't run if not needed
-    }
-
-    if (isARSupported || isQuickLookSupported) {
-      console.log('🚀 Auto-activating AR...')
-      
-      // Delay slightly to ensure everything is initialized
-      const timer = setTimeout(() => {
-        if (isQuickLookSupported && deviceInfo.isIOS) {
-          console.log('🍎 Using Quick Look for iOS')
-          openQuickLook()
-        } else if (isARSupported) {
-          console.log('🌐 Using WebXR AR')
-          startAR()
-        }
-      }, 500)
-      
-      return () => clearTimeout(timer)
-    }
-  }, [autoActivateAR, isARSupported, isQuickLookSupported, isARActive, deviceInfo.isIOS])
-
-  const startAR = async () => {
+  const initializeAR = async () => {
     try {
-      if (!navigator.xr) {
-        throw new Error('WebXR not supported')
+      console.log('🚀 Starting AR initialization...')
+
+      // Request camera permission
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        })
+        stream.getTracks().forEach(t => t.stop())
+        console.log('✅ Camera permission granted')
+      } catch (err) {
+        throw new Error('Camera permission denied. Please enable camera access.')
       }
 
-      console.log('📱 Requesting AR session...')
-
-      const sessionInit = {
-        requiredFeatures: ['local-floor'],
-        optionalFeatures: ['dom-overlay', 'hit-test', 'dom-overlay-for-handheld-ar']
-      }
-
-      const session = await navigator.xr.requestSession('immersive-ar', sessionInit)
-      console.log('✅ AR session started:', session)
-
-      xrSessionRef.current = session
-      setIsARActive(true)
-      setError(null)
-
-      // Set up WebGL context
-      const canvas = canvasRef.current
-      const gl = canvas.getContext('webgl2', { xrCompatible: true }) || 
-                  canvas.getContext('webgl', { xrCompatible: true })
-
-      if (!gl) {
-        throw new Error('WebGL not supported')
-      }
-
-      glRef.current = gl
-      await gl.makeXRCompatible()
-
-      // Set up Three.js scene
+      // Create Three.js scene
       const scene = new THREE.Scene()
-      scene.background = null // Transparent background for AR
+      scene.background = new THREE.Color(0x000000)
       sceneRef.current = scene
 
-      // Set up camera
-      const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000)
-      camera.position.z = 0
+      // Create camera
+      const width = window.innerWidth
+      const height = window.innerHeight
+      const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000)
+      camera.position.z = 3
+      cameraRef.current = camera
 
-      // Set up renderer
-      const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true })
-      renderer.setPixelRatio(window.devicePixelRatio)
-      renderer.setSize(window.innerWidth, window.innerHeight)
-      renderer.xr.enabled = true
-      renderer.xr.setSession(session)
+      // Create WebGL renderer
+      const canvas = document.createElement('canvas')
+      const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: false,
+        alpha: false,
+        powerPreference: 'low-power'
+      })
+      renderer.setSize(width, height)
+      renderer.pixelRatio = Math.min(window.devicePixelRatio, 1.5)
+      renderer.setClearColor(0x000000, 1)
       rendererRef.current = renderer
 
-      // Add lighting
-      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1)
-      scene.add(light)
+      if (containerRef.current) {
+        containerRef.current.appendChild(canvas)
+        console.log('✅ Canvas appended')
+      }
 
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
-      directionalLight.position.set(5, 5, 5)
-      scene.add(directionalLight)
+      // Create video element for live camera feed
+      const video = document.createElement('video')
+      video.setAttribute('autoplay', '')
+      video.setAttribute('playsinline', '')
+      video.setAttribute('muted', '')
+      video.setAttribute('webkit-playsinline', '')
+      video.style.display = 'none'
+      document.body.appendChild(video)
+      videoRef.current = video
 
-      // Load and add model
+      // Get camera stream
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      })
+      video.srcObject = stream
+      console.log('✅ Camera stream requested')
+
+      // Wait for video to load
+      await new Promise(resolve => {
+        const handler = () => {
+          video.removeEventListener('loadedmetadata', handler)
+          resolve()
+        }
+        video.addEventListener('loadedmetadata', handler)
+        video.play().catch(e => console.warn('Video play warning:', e))
+      })
+      console.log('✅ Video playing')
+
+      // Create video texture
+      const videoTexture = new THREE.VideoTexture(video)
+      videoTexture.flipY = false
+
+      // Create background plane with camera feed
+      const planeGeom = new THREE.PlaneGeometry(16, 9)
+      const planeMat = new THREE.MeshBasicMaterial({ map: videoTexture })
+      const bgPlane = new THREE.Mesh(planeGeom, planeMat)
+      bgPlane.position.z = -5
+      scene.add(bgPlane)
+      console.log('✅ Background plane added')
+
+      // Create model group for 3D objects
+      const modelGroup = new THREE.Group()
+      scene.add(modelGroup)
+
+      // Load 3D model
       if (modelUrl) {
         try {
-          const gltf = await loaderRef.current.loadAsync(modelUrl)
+          console.log('🎯 Loading model:', dishName)
+          const loader = new GLTFLoader()
+          const gltf = await loader.loadAsync(modelUrl)
           const model = gltf.scene
-          
+
           // Scale and position model
           const box = new THREE.Box3().setFromObject(model)
           const size = box.getSize(new THREE.Vector3())
           const maxDim = Math.max(size.x, size.y, size.z)
-          const scale = 1 / maxDim
+          const scale = 1.5 / maxDim
           model.scale.multiplyScalar(scale)
-          
-          // Center model
+
+          // Center the model
           box.setFromObject(model)
           const center = box.getCenter(new THREE.Vector3())
-          model.position.x += -center.x
-          model.position.y += -center.y
-          model.position.z += -center.z - 0.5 // Move forward
-          
-          scene.add(model)
+          model.position.sub(center)
+
+          modelGroup.add(model)
           modelRef.current = model
-          console.log('🎯 Model loaded:', dishName)
+          console.log('✅ Model loaded and positioned')
         } catch (err) {
-          console.error('❌ Failed to load model:', err)
-          // Create a placeholder if model fails to load
-          const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1)
-          const material = new THREE.MeshStandardMaterial({ color: 0xff6b6b })
+          console.error('❌ Model load failed:', err.message)
+          // Create placeholder if model fails
+          const geometry = new THREE.BoxGeometry(0.8, 0.8, 0.8)
+          const material = new THREE.MeshPhongMaterial({ color: 0xffaa00 })
           const placeholder = new THREE.Mesh(geometry, material)
-          placeholder.position.z = -0.5
-          scene.add(placeholder)
+          modelGroup.add(placeholder)
           modelRef.current = placeholder
         }
       }
 
-      // Get reference space
-      const xrFrameOfRef = await session.requestReferenceSpace('local-floor')
+      // Add lights
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1)
+      modelGroup.add(ambientLight)
 
-      // Handle session end
-      session.addEventListener('end', () => {
-        console.log('🔚 AR session ended')
-        setIsARActive(false)
-        xrSessionRef.current = null
-      })
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 1)
+      directionalLight.position.set(5, 10, 5)
+      modelGroup.add(directionalLight)
 
-      // Start render loop
-      const renderFrame = (time, frame) => {
-        const session = frame.session
-        const pose = frame.getViewerPose(xrFrameOfRef)
+      // Handle window resize
+      const onResize = () => {
+        const w = window.innerWidth
+        const h = window.innerHeight
+        camera.aspect = w / h
+        camera.updateProjectionMatrix()
+        renderer.setSize(w, h)
+      }
+      window.addEventListener('resize', onResize)
+
+      // Animation loop
+      let frameCount = 0
+      const animate = () => {
+        animationIdRef.current = requestAnimationFrame(animate)
+
+        if (modelRef.current && frameCount % 2 === 0) {
+          modelRef.current.rotation.y += 0.01
+          modelRef.current.rotation.x += 0.004
+        }
+        frameCount++
 
         renderer.render(scene, camera)
-        session.requestAnimationFrame(renderFrame)
       }
+      animate()
 
-      session.requestAnimationFrame(renderFrame)
-
+      setIsARReady(true)
+      console.log('✅ AR initialized successfully!')
     } catch (err) {
-      console.error('❌ Failed to start AR:', err)
-      setError(`AR Session Error: ${err.message}. Try refreshing and enabling WebXR in browser settings.`)
-      setIsARActive(false)
-
-      // On iOS, fallback to Quick Look if available
-      if (deviceInfo.isIOS && isQuickLookSupported) {
-        console.log('🍎 Falling back to Quick Look...')
-        setTimeout(() => openQuickLook(), 500)
-        setError(null)
-      }
+      console.error('❌ AR initialization failed:', err)
+      setError(err.message)
     }
   }
 
-  const openQuickLook = () => {
-    console.log('🍎 Opening Quick Look...')
-    // iOS Quick Look AR for USDZ files
-    // Since we have GLB files, we'll try to open in browser AR
-    if (modelUrl && deviceInfo.isIOS) {
-      try {
-        // Try to open the GLB in iOS AR using a link
-        const link = document.createElement('a')
-        link.href = modelUrl
-        link.rel = 'ar'
-        link.setAttribute('download', 'model.usdz')
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        console.log('🍎 Quick Look link clicked')
-      } catch (err) {
-        console.error('❌ Quick Look failed:', err)
-        setError('Failed to open AR on iOS')
-      }
+  const handleExit = () => {
+    if (animationIdRef.current) {
+      cancelAnimationFrame(animationIdRef.current)
     }
+    window.history.back()
   }
 
-  const openModelViewer = () => {
-    setShowModelViewer(true)
-  }
-
-  const stopAR = () => {
-    if (xrSessionRef.current) {
-      xrSessionRef.current.end()
-    }
-  }
-
-  // Show debug info in development
-  const showDebug = process.env.NODE_ENV === 'development'
-
+  // Error state
   if (error) {
     return (
-      <div className="ar-viewer w-full h-full relative bg-black flex items-center justify-center">
-        <div className="text-center text-white p-4 max-w-md">
-          <h2 className="text-xl font-bold mb-2 text-red-400">AR Not Available</h2>
-          <p className="text-gray-300 mb-4">{error}</p>
-
-          <div className="space-y-3">
-            {deviceInfo.isIOS && (
-              <div className="bg-blue-900 p-3 rounded-lg">
-                <h3 className="font-semibold mb-1">iOS Safari Setup:</h3>
-                <ol className="text-sm text-left list-decimal list-inside space-y-1">
-                  <li>Update to iOS 15.1 or later</li>
-                  <li>Settings → Safari → Advanced → WebXR (enable)</li>
-                  <li>Or try Chrome on iOS for better AR support</li>
-                  <li>Make sure you're using the latest Safari version</li>
-                </ol>
-              </div>
-            )}
-
-            {deviceInfo.isAndroid && (
-              <div className="bg-green-900 p-3 rounded-lg">
-                <h3 className="font-semibold mb-1">Android Setup:</h3>
-                <p className="text-sm">Use Chrome, Samsung Internet, or Edge on a device with AR capabilities</p>
-              </div>
-            )}
-
-            {!deviceInfo.isIOS && !deviceInfo.isAndroid && (
-              <div className="bg-purple-900 p-3 rounded-lg">
-                <h3 className="font-semibold mb-1">Desktop/Laptop:</h3>
-                <p className="text-sm">AR requires mobile devices. Scan QR codes with your phone or tablet for the full AR experience.</p>
-                {deviceInfo.isChrome && (
-                  <p className="text-xs mt-1">Chrome: Enable WebXR in chrome://flags/#webxr-incubations</p>
-                )}
-                {deviceInfo.isEdge && (
-                  <p className="text-xs mt-1">Edge: WebXR should be enabled by default</p>
-                )}
-              </div>
-            )}
-
-            {(deviceInfo.isChrome || deviceInfo.isSafari || deviceInfo.isEdge) && !navigator.xr && (
-              <div className="bg-orange-900 p-3 rounded-lg">
-                <h3 className="font-semibold mb-1">Enable WebXR:</h3>
-                <div className="text-sm space-y-1">
-                  {deviceInfo.isChrome && (
-                    <p>• Chrome: Go to chrome://flags/#webxr-incubations and enable it</p>
-                  )}
-                  {deviceInfo.isSafari && (
-                    <p>• Safari: Settings → Safari → Advanced → WebXR (enable)</p>
-                  )}
-                  {deviceInfo.isEdge && (
-                    <p>• Edge: WebXR should be enabled by default</p>
-                  )}
-                  <p>• Restart browser after enabling</p>
-                </div>
-              </div>
-            )}
-
-            <div className="bg-yellow-900 p-3 rounded-lg">
-              <h3 className="font-semibold mb-1">Alternative Options:</h3>
-              <div className="text-sm space-y-2">
-                <button
-                  onClick={openModelViewer}
-                  className="w-full bg-aroma-gold text-aroma-dark px-4 py-2 rounded-lg font-medium hover:bg-yellow-500 transition-colors"
-                >
-                  View 3D Model Instead
-                </button>
-                <p>• Use a mobile device with AR support</p>
-                {!navigator.xr && (deviceInfo.isChrome || deviceInfo.isSafari || deviceInfo.isEdge) && (
-                  <p>• Enable WebXR in browser settings (see above)</p>
-                )}
-              </div>
-            </div>
+      <div className="w-full h-full bg-black flex items-center justify-center">
+        <div className="text-center text-white p-6 max-w-md">
+          <h2 className="text-2xl font-bold mb-4 text-red-500">⚠️ Error</h2>
+          <p className="text-gray-300 mb-6">{error}</p>
+          <div className="space-y-2">
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full bg-aroma-gold text-black px-6 py-2 rounded-lg font-medium hover:bg-yellow-500 transition-colors"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => window.history.back()}
+              className="w-full bg-gray-700 text-white px-6 py-2 rounded-lg font-medium hover:bg-gray-600 transition-colors"
+            >
+              Go Back
+            </button>
           </div>
-
-          {showDebug && (
-            <div className="mt-4 p-2 bg-gray-800 rounded text-xs text-left">
-              <strong>Debug Info:</strong>
-              <pre className="mt-1">{JSON.stringify(debugInfo, null, 2)}</pre>
-            </div>
-          )}
-
-          <p className="text-xs text-gray-400 mt-4">
-            Device: {deviceInfo.isIOS ? 'iOS' : deviceInfo.isAndroid ? 'Android' : 'Desktop'}
-            {deviceInfo.iOSVersion > 0 && ` (${deviceInfo.iOSVersion})`}
-          </p>
         </div>
       </div>
     )
   }
 
-  // Show 3D model viewer fallback
-  if (showModelViewer) {
+  // Loading state
+  if (!isARReady) {
     return (
-      <div className="model-viewer w-full h-full relative bg-black">
-        <div className="absolute top-4 left-4 z-10">
+      <div className="w-full h-full bg-black flex items-center justify-center">
+        <div className="text-center text-white">
+          <div className="animate-spin w-16 h-16 border-4 border-gray-600 border-t-aroma-gold rounded-full mx-auto mb-6"></div>
+          <p className="text-lg font-semibold mb-2">Initializing AR Camera</p>
+          <p className="text-sm text-gray-400">Please allow camera access...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // AR view
+  return (
+    <div className="w-full h-full relative bg-black overflow-hidden">
+      {/* 3D Canvas */}
+      <div
+        ref={containerRef}
+        className="w-full h-full"
+        style={{ position: 'relative' }}
+      />
+
+      {/* UI Overlay */}
+      <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4">
+        {/* Top bar */}
+        <div className="flex justify-between items-center pointer-events-auto">
+          <div className="bg-aroma-dark bg-opacity-90 text-white px-4 py-2 rounded-lg">
+            <p className="font-medium text-sm">🍽️ {dishName}</p>
+          </div>
           <button
-            onClick={() => setShowModelViewer(false)}
-            className="bg-aroma-dark bg-opacity-90 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-opacity-100 transition-all"
+            onClick={handleExit}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm"
           >
-            ← Back to AR
+            ← Exit
           </button>
         </div>
 
-        <div className="w-full h-full flex items-center justify-center">
-          <div className="text-center text-white p-4">
-            <h2 className="text-xl font-bold mb-4">3D Model Viewer</h2>
-            <div className="bg-gray-800 p-4 rounded-lg max-w-md">
-              <p className="text-sm mb-4">
-                Since AR is not available, here's the 3D model you can view and rotate:
-              </p>
-
-              {/* Simple 3D viewer - you could integrate model-viewer here */}
-              <div className="bg-gray-700 p-8 rounded-lg mb-4">
-                <div className="text-center">
-                  <div className="text-6xl mb-2">🍽️</div>
-                  <p className="text-sm text-gray-300">3D Model: {dishName}</p>
-                  <p className="text-xs text-gray-400 mt-2">
-                    (Model viewer would be integrated here with {modelUrl})
-                  </p>
-                </div>
-              </div>
-
-              <p className="text-xs text-gray-400">
-                For full AR experience, use a mobile device with AR support.
-              </p>
-            </div>
-          </div>
+        {/* Bottom instructions */}
+        <div className="bg-aroma-dark bg-opacity-90 text-white text-center px-4 py-3 rounded-lg pointer-events-auto">
+          <p className="text-sm">📱 Rotate your device to explore • Pinch to zoom</p>
         </div>
       </div>
-    )
-  }
-
-  return (
-    <div className="ar-viewer w-full h-full relative bg-black">
-      {/* Hidden canvas for WebXR */}
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full"
-        style={{ display: isARActive ? 'block' : 'none' }}
-      />
-
-      {/* AR Controls */}
-      {!isARActive && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center">
-            <div className="space-y-4">
-              <button
-                onClick={isQuickLookSupported && deviceInfo.isIOS ? openQuickLook : startAR}
-                disabled={!isARSupported && !isQuickLookSupported}
-                className="bg-aroma-gold text-aroma-dark px-8 py-4 rounded-lg font-bold text-lg hover:bg-yellow-500 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isARSupported ? '🚀 Start AR Experience' :
-                 isQuickLookSupported ? '📱 Open in AR (iOS)' :
-                 'AR Not Supported'}
-              </button>
-
-              {deviceInfo.isIOS && !isARSupported && (
-                <button
-                  onClick={openQuickLook}
-                  className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
-                >
-                  Try iOS Quick Look
-                </button>
-              )}
-            </div>
-
-            <p className="text-white text-sm max-w-xs mt-4">
-              {deviceInfo.isIOS
-                ? 'iOS 15+ required. Enable WebXR in Safari settings for immersive AR.'
-                : deviceInfo.isAndroid
-                  ? 'Point your camera at a surface to see the 3D model in augmented reality'
-                  : 'AR is only available on mobile devices. Use your phone to scan QR codes for AR.'
-              }
-            </p>
-
-            {showDebug && (
-              <div className="mt-4 p-2 bg-gray-800 rounded text-xs">
-                <strong>Status:</strong> AR: {isARSupported ? '✅' : '❌'},
-                QuickLook: {isQuickLookSupported ? '✅' : '❌'}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* AR Active UI */}
-      {isARActive && (
-        <>
-          <div className="absolute top-4 right-4">
-            <button
-              onClick={stopAR}
-              className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium"
-            >
-              Exit AR
-            </button>
-          </div>
-
-          <div className="absolute bottom-4 left-4 right-4 text-white text-center">
-            <p className="text-sm opacity-80">
-              Move your device to explore the 3D model in your space
-            </p>
-          </div>
-        </>
-      )}
     </div>
   )
 }
