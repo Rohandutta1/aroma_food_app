@@ -1,4 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react'
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 
 // Enhanced WebXR AR Viewer with iOS Support
 const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
@@ -12,6 +14,10 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
   const [debugInfo, setDebugInfo] = useState({})
   const xrSessionRef = useRef(null)
   const glRef = useRef(null)
+  const sceneRef = useRef(null)
+  const rendererRef = useRef(null)
+  const modelRef = useRef(null)
+  const loaderRef = useRef(new GLTFLoader())
 
   // Detect device and capabilities
   useEffect(() => {
@@ -141,13 +147,10 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
 
       const sessionInit = {
         requiredFeatures: ['local-floor'],
-        optionalFeatures: ['dom-overlay', 'hit-test']
+        optionalFeatures: ['dom-overlay', 'hit-test', 'dom-overlay-for-handheld-ar']
       }
 
-      console.log('Session init:', sessionInit)
-
       const session = await navigator.xr.requestSession('immersive-ar', sessionInit)
-
       console.log('✅ AR session started:', session)
 
       xrSessionRef.current = session
@@ -156,17 +159,77 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
 
       // Set up WebGL context
       const canvas = canvasRef.current
-      const gl = canvas.getContext('webgl', { xrCompatible: true })
+      const gl = canvas.getContext('webgl2', { xrCompatible: true }) || 
+                  canvas.getContext('webgl', { xrCompatible: true })
 
       if (!gl) {
         throw new Error('WebGL not supported')
       }
 
       glRef.current = gl
-
-      // Make XR session
       await gl.makeXRCompatible()
 
+      // Set up Three.js scene
+      const scene = new THREE.Scene()
+      scene.background = null // Transparent background for AR
+      sceneRef.current = scene
+
+      // Set up camera
+      const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000)
+      camera.position.z = 0
+
+      // Set up renderer
+      const renderer = new THREE.WebGLRenderer({ canvas, context: gl, alpha: true, antialias: true })
+      renderer.setPixelRatio(window.devicePixelRatio)
+      renderer.setSize(window.innerWidth, window.innerHeight)
+      renderer.xr.enabled = true
+      renderer.xr.setSession(session)
+      rendererRef.current = renderer
+
+      // Add lighting
+      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1)
+      scene.add(light)
+
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
+      directionalLight.position.set(5, 5, 5)
+      scene.add(directionalLight)
+
+      // Load and add model
+      if (modelUrl) {
+        try {
+          const gltf = await loaderRef.current.loadAsync(modelUrl)
+          const model = gltf.scene
+          
+          // Scale and position model
+          const box = new THREE.Box3().setFromObject(model)
+          const size = box.getSize(new THREE.Vector3())
+          const maxDim = Math.max(size.x, size.y, size.z)
+          const scale = 1 / maxDim
+          model.scale.multiplyScalar(scale)
+          
+          // Center model
+          box.setFromObject(model)
+          const center = box.getCenter(new THREE.Vector3())
+          model.position.x += -center.x
+          model.position.y += -center.y
+          model.position.z += -center.z - 0.5 // Move forward
+          
+          scene.add(model)
+          modelRef.current = model
+          console.log('🎯 Model loaded:', dishName)
+        } catch (err) {
+          console.error('❌ Failed to load model:', err)
+          // Create a placeholder if model fails to load
+          const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1)
+          const material = new THREE.MeshStandardMaterial({ color: 0xff6b6b })
+          const placeholder = new THREE.Mesh(geometry, material)
+          placeholder.position.z = -0.5
+          scene.add(placeholder)
+          modelRef.current = placeholder
+        }
+      }
+
+      // Get reference space
       const xrFrameOfRef = await session.requestReferenceSpace('local-floor')
 
       // Handle session end
@@ -181,16 +244,7 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
         const session = frame.session
         const pose = frame.getViewerPose(xrFrameOfRef)
 
-        if (pose) {
-          gl.bindFramebuffer(gl.FRAMEBUFFER, session.renderState.baseLayer.framebuffer)
-
-          // Clear and render
-          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-
-          // Here you would render your 3D model
-          // For now, just clear to show camera feed
-        }
-
+        renderer.render(scene, camera)
         session.requestAnimationFrame(renderFrame)
       }
 
