@@ -22,12 +22,20 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
   // Detect device and capabilities
   useEffect(() => {
     const detectDevice = () => {
-      const userAgent = navigator.userAgent
-      const isIOS = /iPad|iPhone|iPod/.test(userAgent)
-      const isAndroid = /Android/.test(userAgent)
-      const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent)
-      const isChrome = /chrome/i.test(userAgent)
-      const isEdge = /edg/i.test(userAgent)
+      const userAgent = navigator.userAgent.toLowerCase()
+      const isIOS = /ipad|iphone|ipod/.test(userAgent)
+      const isAndroid = /android/.test(userAgent)
+      
+      // More robust browser detection
+      const isChrome = /chrome/.test(userAgent) && !/edg|opr/.test(userAgent)
+      const isSafari = /safari/.test(userAgent) && !/chrome|android|edg|opr/.test(userAgent)
+      const isEdge = /edg/.test(userAgent)
+      const isOpera = /opr/.test(userAgent)
+      const isFirefox = /firefox/.test(userAgent)
+
+      // For Android, also check for Samsung Internet or other Chromium browsers
+      const isSamsungInternet = /samsungbrowser/.test(userAgent)
+      const isChromium = isChrome || isEdge || isSamsungInternet || (isAndroid && /chrome|crios/.test(userAgent))
 
       const info = {
         isIOS,
@@ -35,95 +43,138 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
         isSafari,
         isChrome,
         isEdge,
+        isOpera,
+        isFirefox,
+        isChromium,
+        isSamsungInternet,
         isMobile: isIOS || isAndroid,
-        userAgent,
-        iOSVersion: isIOS ? parseFloat(userAgent.match(/OS (\d+)_(\d+)/)?.slice(1).join('.') || '0') : 0
+        userAgent: navigator.userAgent,
+        iOSVersion: isIOS ? parseFloat(userAgent.match(/os (\d+)_(\d+)/)?.slice(1).join('.') || '0') : 0
       }
 
       setDeviceInfo(info)
       setDebugInfo({
-        userAgent,
+        userAgent: navigator.userAgent,
         hasXR: !!navigator.xr,
         hasWebkit: !!window.webkit,
         iOSVersion: info.iOSVersion
       })
 
       // Check for Quick Look support (iOS AR)
-      setIsQuickLookSupported(isIOS && 'webkit' in window)
+      const hasQuickLook = isIOS && ('webkit' in window) && window.webkit?.messageHandlers?.playAR
+      setIsQuickLookSupported(hasQuickLook)
+      
+      console.log('📱 Device detected:', {
+        platform: isIOS ? 'iOS' : isAndroid ? 'Android' : 'Desktop',
+        browser: isSafari ? 'Safari' : isChrome ? 'Chrome' : isEdge ? 'Edge' : isSamsungInternet ? 'Samsung Internet' : 'Other',
+        hasXR: !!navigator.xr,
+        hasQuickLook
+      })
     }
 
     detectDevice()
   }, [])
 
-  // Check AR support with detailed logging
+  // Check AR support ONLY after device info is fully set
   useEffect(() => {
+    // Skip if device detection isn't complete
+    if (!deviceInfo.isMobile === undefined || !deviceInfo.isIOS === undefined) {
+      return
+    }
+
     const checkARSupport = async () => {
-      console.log('🔍 Checking AR support...', deviceInfo, debugInfo)
+      console.log('🔍 Checking AR support...', {
+        isMobile: deviceInfo.isMobile,
+        isIOS: deviceInfo.isIOS,
+        isAndroid: deviceInfo.isAndroid,
+        hasXR: !!navigator.xr
+      })
 
-      // Check WebXR availability
+      // WebXR not available at all
       if (!navigator.xr) {
-        console.log('❌ WebXR not available')
-
-        // Check if it's a browser that should support WebXR
+        console.log('❌ WebXR not available on this device')
         const shouldSupportWebXR = deviceInfo.isChrome || deviceInfo.isSafari || deviceInfo.isEdge
 
         if (deviceInfo.isIOS) {
-          setError('iOS Safari requires WebXR. Enable it in Settings → Safari → Advanced → WebXR, or use Chrome.')
+          setError('🍎 iOS Safari: Enable WebXR in Settings → Safari → Advanced → WebXR, restart Safari, then try again.')
         } else if (deviceInfo.isAndroid) {
-          setError('Android requires Chrome 81+ or Samsung Internet. Update your browser for AR support.')
+          setError('🤖 Android: Requires Chrome 81+, Samsung Internet, or Edge. Update your browser.')
         } else if (shouldSupportWebXR) {
-          setError('WebXR is disabled in your browser. Enable it in browser settings or try a different browser.')
+          setError('🔧 WebXR is disabled. Enable it in settings: Chrome → chrome://flags → webxr-incubations')
         } else {
-          setError('WebXR requires a modern browser. Try Chrome, Edge, or Safari for AR support.')
+          setError('📱 AR requires a mobile device. Try on your phone or tablet.')
         }
         return
       }
 
+      // Test if camera permission is accessible
+      let hasCameraPermission = false
       try {
-        // Check immersive-ar support
-        console.log('🔄 Checking immersive-ar support...')
-        const arSupported = await navigator.xr.isSessionSupported('immersive-ar')
-        console.log('🎯 Immersive AR supported:', arSupported)
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true })
+        stream.getTracks().forEach(track => track.stop())
+        hasCameraPermission = true
+        console.log('✅ Camera permission available')
+      } catch (err) {
+        console.warn('⚠️ Camera permission denied or unavailable:', err.message)
+        hasCameraPermission = false
+      }
+
+      try {
+        // Test immersive-ar support
+        console.log('🔄 Testing immersive-ar support...')
+        const arSupported = await Promise.race([
+          navigator.xr.isSessionSupported('immersive-ar'),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('XR check timeout')), 3000))
+        ])
 
         if (arSupported) {
+          console.log('✅ Immersive AR is supported!')
           setIsARSupported(true)
           setError(null)
-          console.log('✅ AR is supported!')
         } else {
-          // Fallback: check for basic VR support
-          console.log('🔄 Checking VR support...')
-          const vrSupported = await navigator.xr.isSessionSupported('immersive-vr')
-          console.log('👓 VR supported:', vrSupported)
-
-          if (vrSupported) {
-            setIsARSupported(true)
-            setError(null)
-            console.log('✅ VR fallback available')
+          // AR not supported - don't check VR, just show error
+          console.log('❌ Immersive AR not supported')
+          if (deviceInfo.isIOS) {
+            setError('🍎 iOS AR unavailable. Ensure iOS 15.1+ and WebXR is enabled in Safari Advanced settings.')
+          } else if (deviceInfo.isAndroid) {
+            if (!hasCameraPermission) {
+              setError('📷 Camera permission denied. Grant camera access and try again.')
+            } else {
+              setError('🤖 Your Android device may not support WebXR AR. Try Chrome or Samsung Internet.')
+            }
           } else {
-            console.log('❌ No XR sessions supported')
-            setError(deviceInfo.isIOS
-              ? 'iOS AR requires iOS 15+ and WebXR enabled. Go to Settings → Safari → Advanced → WebXR'
-              : deviceInfo.isAndroid
-                ? 'AR not supported on this Android device. Try a newer device with AR capabilities.'
-                : 'AR requires a mobile device with camera. Use your phone or tablet to scan QR codes and experience AR.'
-            )
+            setError('AR not supported on this device.')
           }
+          setIsARSupported(false)
         }
       } catch (err) {
-        console.error('❌ AR support check error:', err)
-        setError(`Error checking AR support: ${err.message}`)
+        console.error('❌ AR support check failed:', err)
+        
+        // Distinguish timeout from actual errors
+        if (err.message === 'XR check timeout') {
+          setError('⏱️ AR support check timed out. Check your internet and try again.')
+        } else if (deviceInfo.isIOS) {
+          setError('🍎 WebXR check failed. Ensure it\'s enabled in Settings → Safari → Advanced.')
+        } else {
+          setError(`AR check error: ${err.message}`)
+        }
+        setIsARSupported(false)
       }
     }
 
-    if (deviceInfo.isMobile !== undefined) {
-      checkARSupport()
-    }
-  }, [deviceInfo])
+    checkARSupport()
+  }, [deviceInfo.isMobile, deviceInfo.isIOS, deviceInfo.isAndroid])
 
-  // Auto-start AR when opened via QR
+  // Auto-start AR when opened via QR (simplified, no dependency on full deviceInfo object)
   useEffect(() => {
-    if (autoActivateAR && (isARSupported || isQuickLookSupported) && !isARActive) {
+    if (!autoActivateAR || isARActive) {
+      return // Don't run if not needed
+    }
+
+    if (isARSupported || isQuickLookSupported) {
       console.log('🚀 Auto-activating AR...')
+      
+      // Delay slightly to ensure everything is initialized
       const timer = setTimeout(() => {
         if (isQuickLookSupported && deviceInfo.isIOS) {
           console.log('🍎 Using Quick Look for iOS')
@@ -132,10 +183,11 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
           console.log('🌐 Using WebXR AR')
           startAR()
         }
-      }, 1000)
+      }, 500)
+      
       return () => clearTimeout(timer)
     }
-  }, [autoActivateAR, isARSupported, isQuickLookSupported, isARActive, deviceInfo])
+  }, [autoActivateAR, isARSupported, isQuickLookSupported, isARActive, deviceInfo.isIOS])
 
   const startAR = async () => {
     try {
@@ -252,8 +304,15 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
 
     } catch (err) {
       console.error('❌ Failed to start AR:', err)
-      setError(`Failed to start AR: ${err.message}`)
+      setError(`AR Session Error: ${err.message}. Try refreshing and enabling WebXR in browser settings.`)
       setIsARActive(false)
+
+      // On iOS, fallback to Quick Look if available
+      if (deviceInfo.isIOS && isQuickLookSupported) {
+        console.log('🍎 Falling back to Quick Look...')
+        setTimeout(() => openQuickLook(), 500)
+        setError(null)
+      }
     }
   }
 
