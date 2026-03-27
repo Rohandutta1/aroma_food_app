@@ -21,12 +21,14 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
       const isAndroid = /Android/.test(userAgent)
       const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent)
       const isChrome = /chrome/i.test(userAgent)
+      const isEdge = /edg/i.test(userAgent)
 
       const info = {
         isIOS,
         isAndroid,
         isSafari,
         isChrome,
+        isEdge,
         isMobile: isIOS || isAndroid,
         userAgent,
         iOSVersion: isIOS ? parseFloat(userAgent.match(/OS (\d+)_(\d+)/)?.slice(1).join('.') || '0') : 0
@@ -225,6 +227,12 @@ const ARViewer = ({ modelUrl, dishName, autoActivateAR = false }) => {
 
   const openModelViewer = () => {
     setShowModelViewer(true)
+  }
+
+  const stopAR = () => {
+    if (xrSessionRef.current) {
+      xrSessionRef.current.end()
+    }
   }
 
   // Show debug info in development
